@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase 即時聊天室</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 450px;
+            height: 80vh;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #chat-header {
+            background-color: #0084ff;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        #messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .message-wrapper {
+            display: flex;
+            flex-direction: column;
+            max-width: 75%;
+        }
+        .message-wrapper.self {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+        .message-wrapper.others {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+        .username {
+            font-size: 0.75rem;
+            color: #65676b;
+            margin-bottom: 2px;
+        }
+        .message-text {
+            padding: 10px 14px;
+            border-radius: 18px;
+            font-size: 0.95rem;
+            word-break: break-all;
+        }
+        .self .message-text {
+            background-color: #0084ff;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .others .message-text {
+            background-color: #e4e6eb;
+            color: black;
+            border-bottom-left-radius: 4px;
+        }
+        #input-container {
+            display: flex;
+            padding: 10px;
+            background: #fff;
+            border-top: 1px solid #e4e6eb;
+            gap: 8px;
+        }
+        #username-input {
+            width: 80px;
+            padding: 10px;
+            border: 1px solid #ccd0d5;
+            border-radius: 20px;
+            outline: none;
+            text-align: center;
+        }
+        #message-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ccd0d5;
+            border-radius: 20px;
+            outline: none;
+        }
+        #send-btn {
+            background-color: #0084ff;
+            color: white;
+            border: none;
+            padding: 0 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #send-btn:hover {
+            background-color: #006dd1;
+        }
+    </style>
+</head>
+<body>
+
+<div id="chat-container">
+    <div id="chat-header">即時聊天室</div>
+    <div id="messages"></div>
+    <div id="input-container">
+        <input type="text" id="username-input" placeholder="暱稱" value="訪客">
+        <input type="text" id="message-input" placeholder="輸入訊息..." autocomplete="off">
+        <button id="send-btn">發送</button>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-analytics.js";
+    import { getDatabase, ref, push, set, onChildAdded } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+
+    // 你的網頁應用程式的 Firebase 設定
+    const firebaseConfig = {
+        apiKey: "AIzaSyApxZt1s-Z85Es7WAQH_WsMHFSHh3aTb9Y",
+        authDomain: "lan-chat-58901.firebaseapp.com",
+        projectId: "lan-chat-58901",
+        storageBucket: "lan-chat-58901.firebasestorage.app",
+        messagingSenderId: "375035328357",
+        appId: "1:375035328357:web:5f03ab6a2f29ecfbb4538c",
+        measurementId: "G-YT1VQFWZ4L"
+    };
+
+    // 初始化 Firebase 與工具
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getDatabase(app);
+    const messagesRef = ref(db, 'chat_messages');
+
+    // 取得 DOM 元素
+    const messagesDiv = document.getElementById('messages');
+    const usernameInput = document.getElementById('username-input');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    // 隨機產生一個預設訪客名稱
+    usernameInput.value = '訪客_' + Math.floor(Math.random() * 1000);
+
+    // 發送訊息的函式
+    function sendMessage() {
+        const username = usernameInput.value.trim();
+        const text = messageInput.value.trim();
+
+        if (username === '' || text === '') return;
+
+        // 產生新節點並寫入資料庫
+        const newMsgRef = push(messagesRef);
+        set(newMsgRef, {
+            username: username,
+            text: text,
+            timestamp: Date.now()
+        }).then(() => {
+            messageInput.value = ''; // 清空輸入框
+        }).catch((error) => {
+            console.error("發送失敗:", error);
+        });
+    }
+
+    // 監聽按鈕點擊與 Enter 鍵
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+
+    // 監聽 Firebase 資料庫的新增事件
+    onChildAdded(messagesRef, (data) => {
+        const msg = data.val();
+        const currentUsername = usernameInput.value.trim();
+
+        const msgWrapper = document.createElement('div');
+        msgWrapper.classList.add('message-wrapper');
+        
+        if (msg.username === currentUsername) {
+            msgWrapper.classList.add('self');
+        } else {
+            msgWrapper.classList.add('others');
+        }
+
+        msgWrapper.innerHTML = `
+            <div class="username">${msg.username}</div>
+            <div class="message-text">${escapeHTML(msg.text)}</div>
+        `;
+
+        messagesDiv.appendChild(msgWrapper);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight; // 自動捲動
+    });
+
+    // 防止 XSS 攻擊
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, 
+            tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+        );
+    }
+</script>
+
+</body>
+</html>

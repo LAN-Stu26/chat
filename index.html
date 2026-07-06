@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>極簡安全聊天室</title>
+    <!-- Tailwind CSS 適用於快速排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- CryptoJS 用於客戶端 AES 加解密 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col">
+
+    <!-- 頂部狀態列 -->
+    <header class="bg-blue-600 text-white p-4 flex justify-between items-center shadow">
+        <h1 class="text-lg font-bold">SecureChat</h1>
+        <div id="userInfo" class="text-sm">未登入</div>
+    </header>
+
+    <!-- 主區塊 -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- 左側：登入與通訊錄 -->
+        <section class="w-1/3 bg-white p-4 border-r flex flex-col justify-between">
+            <div id="authSection">
+                <h2 class="text-md font-semibold mb-2">帳號登入/註冊</h2>
+                <input id="username" type="text" placeholder="user_XXXXXXXX" class="w-full p-2 border rounded mb-2 text-sm" value="user_">
+                <input id="password" type="password" placeholder="密碼" class="w-full p-2 border rounded mb-2 text-sm">
+                <div class="flex space-x-2">
+                    <button onclick="handleAuth('login')" class="flex-1 bg-blue-500 text-white py-1 rounded text-sm hover:bg-blue-600">登入</button>
+                    <button onclick="handleAuth('register')" class="flex-1 bg-gray-500 text-white py-1 rounded text-sm hover:bg-gray-600">註冊</button>
+                </div>
+            </div>
+
+            <div id="chatTargetSection" class="hidden mt-4 flex-1 flex flex-col">
+                <h2 class="text-md font-semibold mb-2">開始對話</h2>
+                <input id="targetUser" type="text" placeholder="輸入對方的 user_id" class="w-full p-2 border rounded mb-2 text-sm">
+                <button onclick="startChat()" class="w-full bg-green-500 text-white py-2 rounded text-sm hover:bg-green-600">連線聊天</button>
+                
+                <div class="mt-4">
+                    <label class="block text-xs font-bold text-gray-700">對話加密私鑰 (E2EE):</label>
+                    <input id="encryptionKey" type="password" placeholder="雙方約定的加密密碼" class="w-full p-2 border border-yellow-500 rounded mt-1 text-sm bg-yellow-50">
+                    <p class="text-xs text-gray-500 mt-1">此密鑰僅留在您的瀏覽器，不用於登入，伺服器永遠不會取得。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 右側：聊天視窗 -->
+        <section class="w-2/3 flex flex-col bg-gray-50">
+            <!-- 聊天訊息區 -->
+            <div id="chatWindow" class="flex-1 p-4 overflow-y-auto space-y-3">
+                <p class="text-gray-400 text-center text-sm">請先登入並輸入對方 ID 開始連線</p>
+            </div>
+
+            <!-- 控制發送區 -->
+            <div id="inputSection" class="p-4 bg-white border-t hidden">
+                <div class="flex items-center space-x-4 mb-2">
+                    <span class="text-xs font-bold text-gray-600">加密層級:</span>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="encLevel" value="NOR" checked class="form-radio text-blue-600">
+                        <span class="ml-1 text-xs text-gray-700">NOR (無加密)</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="encLevel" value="ENC" class="form-radio text-yellow-600">
+                        <span class="ml-1 text-xs text-gray-700">ENC (訊息加密)</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="encLevel" value="ENC_PRO" class="form-radio text-red-600">
+                        <span class="ml-1 text-xs text-gray-700">ENC Pro (全加密)</span>
+                    </label>
+                </div>
+                <div class="flex">
+                    <input id="messageInput" type="text" placeholder="輸入訊息..." class="flex-1 p-2 border rounded-l focus:outline-none">
+                    <button onclick="sendMessage()" class="bg-blue-600 text-white px-6 rounded-r hover:bg-blue-700">發送</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // 後端 API 基本路徑（請替換為您的 InfinityFree PHP 網址）
+        const API_BASE = "https://您的InfinityFree域名.infinityfreeapp.com/api"; 
+
+        let currentUser = null;
+        let authToken = null;
+        let activeRoomId = null;
+        let pollInterval = null;
+
+        // 登入或註冊
+        async function handleAuth(type) {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if(!username.startsWith('user_')) {
+                alert('帳號名稱必須以 user_ 開頭');
+                return;
+            }
+
+            const url = `${API_BASE}/${type}.php`;
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if(data.error) {
+                    alert(data.error);
+                } else {
+                    alert(data.message || "操作成功");
+                    if(type === 'login') {
+                        currentUser = data.username;
+                        authToken = data.token;
+                        document.getElementById('userInfo').innerText = `已登入: ${currentUser}`;
+                        document.getElementById('authSection').classList.add('hidden');
+                        document.getElementById('chatTargetSection').classList.remove('hidden');
+                    }
+                }
+            } catch (err) {
+                alert("連接伺服器失敗");
+            }
+        }
+
+        // 與指定目標連線（建立或加入1對1房間）
+        async function startChat() {
+            const targetUser = document.getElementById('targetUser').value.trim();
+            if(!targetUser) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/chat.php?action=get_or_create_room`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': authToken
+                    },
+                    body: JSON.stringify({ target_user: targetUser })
+                });
+                const data = await res.json();
+                if(data.room_id) {
+                    activeRoomId = data.room_id;
+                    document.getElementById('inputSection').classList.remove('hidden');
+                    document.getElementById('chatWindow').innerHTML = `<p class="text-green-500 text-center text-sm">已與 ${targetUser} 建立加密通道 (Room ID: ${activeRoomId})</p>`;
+                    
+                    // 開始輪詢訊息
+                    if(pollInterval) clearInterval(pollInterval);
+                    fetchMessages();
+                    pollInterval = setInterval(fetchMessages, 3000); // 每 3 秒拉取一次
+                } else {
+                    alert(data.error || "連線失敗");
+                }
+            } catch(err) {
+                alert("建立連線失敗");
+            }
+        }
+
+        // 發送訊息
+        async function sendMessage() {
+            const msgInput = document.getElementById('messageInput');
+            const text = msgInput.value.trim();
+            if(!text || !activeRoomId) return;
+
+            const encLevel = document.querySelector('input[name="encLevel"]:checked').value;
+            const key = document.getElementById('encryptionKey').value;
+
+            if((encLevel === 'ENC' || encLevel === 'ENC_PRO') && !key) {
+                alert("請先在左側填寫 '對話加密私鑰' 才能進行加密傳送！");
+                return;
+            }
+
+            let payloadText = text;
+            let payloadMetadata = null;
+
+            // 客戶端加密處理 (AES-256)
+            if (encLevel === 'ENC') {
+                // 僅加密訊息主體
+                payloadText = CryptoJS.AES.encrypt(text, key).toString();
+                payloadMetadata = JSON.stringify({ client_time: new Date().toISOString() });
+            } else if (encLevel === 'ENC_PRO') {
+                // ENC Pro: 將訊息與元數據打包，整體進行加密，資料庫僅儲存密文
+                const packedData = {
+                    msg: text,
+                    sender: currentUser,
+                    timestamp: new Date().toISOString()
+                };
+                payloadText = CryptoJS.AES.encrypt(JSON.stringify(packedData), key).toString();
+                // 在資料庫中將 metadata 設為加密後的指紋或留空
+                payloadMetadata = CryptoJS.AES.encrypt("ENC_PRO_METADATA", key).toString();
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/chat.php?action=send_message`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': authToken
+                    },
+                    body: JSON.stringify({
+                        room_id: activeRoomId,
+                        message_text: payloadText,
+                        encryption_level: encLevel,
+                        metadata: payloadMetadata
+                    })
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    msgInput.value = '';
+                    fetchMessages(); // 立即更新畫面
+                }
+            } catch (err) {
+                console.error("發送失敗", err);
+            }
+        }
+
+        // 拉取與解密訊息
+        async function fetchMessages() {
+            if(!activeRoomId) return;
+            try {
+                const res = await fetch(`${API_BASE}/chat.php?action=get_messages&room_id=${activeRoomId}`, {
+                    headers: { 'Authorization': authToken }
+                });
+                const messages = await res.json();
+                
+                const chatWindow = document.getElementById('chatWindow');
+                chatWindow.innerHTML = '';
+                const key = document.getElementById('encryptionKey').value;
+
+                messages.forEach(msg => {
+                    let displaySender = msg.sender_id;
+                    let displayText = msg.message_text;
+                    let displayTime = msg.created_at;
+                    let decrypFailed = false;
+
+                    if (msg.encryption_level === 'ENC') {
+                        if (key) {
+                            try {
+                                const bytes = CryptoJS.AES.decrypt(msg.message_text, key);
+                                const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                                displayText = decrypted ? decrypted : "[解密失敗，可能金鑰不正確]";
+                            } catch(e) {
+                                displayText = "[解密錯誤]";
+                                decrypFailed = true;
+                            }
+                        } else {
+                            displayText = "[此訊息已加密，請輸入私鑰解密]";
+                        }
+                    } else if (msg.encryption_level === 'ENC_PRO') {
+                        if (key) {
+                            try {
+                                const bytes = CryptoJS.AES.decrypt(msg.message_text, key);
+                                const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
+                                if (decryptedString) {
+                                    const parsed = JSON.parse(decryptedString);
+                                    displayText = parsed.msg;
+                                    displaySender = parsed.sender; // 從密文中解出真實發送者
+                                    displayTime = parsed.timestamp; // 從密文中解出真實時間
+                                } else {
+                                    displayText = "[解密失敗]";
+                                    decrypFailed = true;
+                                }
+                            } catch(e) {
+                                displayText = "[ENC Pro 密文損壞或金鑰錯誤]";
+                                decrypFailed = true;
+                            }
+                        } else {
+                            displayText = "[ENC Pro 安全加密訊息]";
+                            displaySender = "隱藏用戶";
+                            displayTime = "隱藏時間";
+                        }
+                    }
+
+                    // 渲染畫面
+                    const isMe = (displaySender === currentUser);
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
+                    
+                    let badgeColor = "bg-gray-200 text-gray-800";
+                    if(msg.encryption_level === 'ENC') badgeColor = "bg-yellow-200 text-yellow-800";
+                    if(msg.encryption_level === 'ENC_PRO') badgeColor = "bg-red-200 text-red-800";
+
+                    msgDiv.innerHTML = `
+                        <div class="text-xs text-gray-500 mb-1">${displaySender} <span class="px-1 rounded text-[10px] ${badgeColor}">${msg.encryption_level}</span></div>
+                        <div class="p-3 rounded-lg max-w-xs text-sm ${isMe ? 'bg-blue-500 text-white' : 'bg-white border text-gray-800'}">
+                            ${displayText}
+                        </div>
+                        <span class="text-[10px] text-gray-400 mt-1">${displayTime}</span>
+                    `;
+                    chatWindow.appendChild(msgDiv);
+                });
+                
+                // 滾動到底部
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            } catch(err) {
+                console.error("讀取訊息失敗", err);
+            }
+        }
+    </script>
+</body>
+</html>
